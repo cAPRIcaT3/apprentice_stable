@@ -2,7 +2,9 @@ name: Commit-crtiq
 description: AI code reviewer using Metas Llama v2.
 on:
   pull_request:
-
+branding:
+  icon: 'check'
+  color: 'white'
 jobs:        
   Review:
     runs-on: ubuntu-latest
