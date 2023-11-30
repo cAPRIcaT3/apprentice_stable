@@ -13,7 +13,6 @@ public class SpecializedTask {
         int stringLength = calculateStringLength(inputString);
         System.out.println("Length of the entered string: " + stringLength);
 
-        scanner.close();
     }
 
     private static int calculateStringLength(String str) {
