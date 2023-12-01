@@ -15,12 +15,14 @@ runs:
 
     - name: Find GitHub ID of PR author
       run: echo "PR author: ${{ inputs.pr-author-github-id }}"
+      env:
+        PR_AUTHOR_GITHUB_ID: ${{ inputs.pr-author-github-id }}
 
     - name: Checkout pull request HEAD
       id: checkout_pr_head
       uses: actions/checkout@v2
       with:
-        ref: ${{ github.event.pull_request.head.sha }}
+        ref: ${{ github.event.pull_request.head.ref }}
         fetch-depth: 0
 
     - name: Print diff
@@ -36,7 +38,7 @@ runs:
     - name: Cache dependencies
       uses: actions/cache@v3
       with:
-        path: ${{ env.HOME }}/.cache/pip
+        path: $HOME/.cache/pip
         key: ${{ runner.os }}-dependencies-${{ hashFiles('requirements.txt') }}-{{ fileset.modifiedTime('requirements.txt') }}
 
     - uses: actions/setup-python@v4
