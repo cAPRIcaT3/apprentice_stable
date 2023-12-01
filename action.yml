@@ -1,64 +1,78 @@
 name: 'PR Reviewer'
-description: 'Review pull requests and add comments'
+on:
+  pull_request:
 
-inputs:
-  pr-author-github-id:
-    description: 'GitHub ID of the pull request author'
-    required: true
-    default: ${{ github.actor }}
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
 
-runs:
-  using: 'composite'
-  steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
-    - name: Find GitHub ID of PR author
-      run: echo "PR author: ${{ inputs.pr-author-github-id }}"
-      env:
-        PR_AUTHOR_GITHUB_ID: ${{ inputs.pr-author-github-id }}
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Checkout pull request HEAD
-      id: checkout_pr_head
-      uses: actions/checkout@v2
-      with:
-        ref: ${{ github.event.pull_request.head.ref }}
-        fetch-depth: 0
+      - name: Run PR Reviewer
+        run: |
+          python - << EOF
+import glob
+import os
+from huggingface_hub import hf_hub_download
+from llama_cpp import Llama
 
-    - name: Print diff
-      shell: bash
-      run: |
-        git fetch origin main
-        git diff origin/main..HEAD > difference_hunk.txt
-        find . -type f -name difference_hunk.txt
-        pwd
-        echo "difference hunk = "
-        cat difference_hunk.txt
+model_name_or_path = "TheBloke/Llama-2-13B-chat-GGML"
+model_basename = "llama-2-13b-chat.ggmlv3.q5_1.bin"
 
-    - name: Cache dependencies
-      uses: actions/cache@v3
-      with:
-        path: $HOME/.cache/pip
-        key: ${{ runner.os }}-dependencies-${{ hashFiles('requirements.txt') }}-{{ fileset.modifiedTime('requirements.txt') }}
+model_path = hf_hub_download(repo_id=model_name_or_path, filename=model_basename)
 
-    - uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+lcpp_llm = Llama(
+    model_path=model_path,
+    n_threads=2,
+    n_batch=512,
+    n_gpu_layers=32,
+    n_ctx=3072
+)
 
-    - name: Install dependencies
-      run: |
-        pip install --upgrade pip
-        pip install -r requirements.txt
+github_workspace_path = os.getenv("GITHUB_WORKSPACE")
 
-    - name: Run Python script
-      run: python src/commenter.py
+with open(f"{github_workspace_path}/difference_hunk.txt", "r") as diff_handle:
+    diff = diff_handle.read()
 
-    - name: Read PR comment from file
-      run: cat src/files/output.txt > pr_comment.txt
+prompt = (
+    """you are a code review assistant. Concisely summarize the major code difference in ONE LINE, explaining the difference in a way humans can understand. do it in the format:\nCHANGE: Explanation.\n\nHere is the code difference: """
+    + diff
+)
+prompt_template = f'''SYSTEM: You are a helpful, respectful and honest assistant. Always answer as helpfully.\n\nUSER: {prompt}\n\nASSISTANT:'''
 
-    - name: Add PR comment
-      uses: mshick/add-pr-comment@v2
-      with:
-        message-path: pr_comment.txt
-        repo-directory: './'
-        requirements-path: 'requirements.txt'
+response = lcpp_llm(
+    prompt=prompt_template,
+    max_tokens=1536,
+    temperature=0.5,
+    top_p=0.95,
+    repeat_penalty=1.2,
+    top_k=50,
+    echo=False
+)["choices"][0]["text"]
+
+with open("src/files/output.txt", "a") as f:
+    f.write(f"{response}")
+EOF
+
+      - name: Read PR comment from file
+        run: cat src/files/output.txt > pr_comment.txt
+
+      - name: Add PR comment
+        uses: mshick/add-pr-comment@v2
+        with:
+          message-path: pr_comment.txt
+          repo-directory: './'
+          requirements-path: 'requirements.txt'
